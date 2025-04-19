@@ -1,0 +1,347 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Auto Mailer</title>
+  <script src="https://cdn.jsdelivr.net/npm/react@18.2.0/umd/react.development.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/react-dom@18.2.0/umd/react-dom.development.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@babel/standalone@7.20.15/babel.min.js"></script>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+  <style>
+    /* Custom styles for file inputs, buttons, popovers, and layout */
+    .file-input-container {
+      position: relative;
+      width: 100%;
+    }
+    .file-input {
+      display: block;
+      width: 100%;
+      padding: 0.75rem;
+      border: 1px solid #4b5563;
+      border-radius: 0.5rem;
+      background-color: #1f2937;
+      color: #d1d5db;
+      cursor: pointer;
+      transition: border-color 0.2s ease, background-color 0.2s ease;
+    }
+    .file-input:hover {
+      border-color: #3b82f6;
+      background-color: #374151;
+    }
+    .file-input:focus {
+      outline: none;
+      border-color: #3b82f6;
+      box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.3);
+    }
+    .file-label {
+      display: block;
+      margin-bottom: 0.5rem;
+      font-size: 0.875rem;
+      font-weight: 500;
+      color: #d1d5db;
+    }
+    .gradient-btn {
+      background: linear-gradient(90deg, #3b82f6, #60a5fa);
+      transition: transform 0.2s ease, box-shadow 0.2s ease;
+    }
+    .gradient-btn:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 4px 6px rgba(0, 0, 0, 0.2);
+    }
+    .gradient-btn:active {
+      transform: translateY(0);
+    }
+    .main-content {
+      min-height: calc(100vh - 128px);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding-top: 4rem;
+      padding-bottom: 4rem;
+    }
+    .popover {
+      position: fixed;
+      top: 20%;
+      left: 50%;
+      transform: translateX(-50%);
+      background-color: #1f2937;
+      padding: 1rem;
+      border-radius: 0.5rem;
+      box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
+      z-index: 50;
+      max-width: 90%;
+      width: 400px;
+    }
+    .popover-success {
+      border: 2px solid #10b981;
+    }
+    .popover-error {
+      border: 2px solid #ef4444;
+    }
+    .close-btn {
+      position: absolute;
+      top: 0.5rem;
+      right: 0.5rem;
+      background: none;
+      border: none;
+      color: #d1d5db;
+      cursor: pointer;
+      font-size: 1.25rem;
+    }
+    .spinner {
+      border: 2px solid #f3f3f3;
+      border-top: 2px solid #3b82f6;
+      border-radius: 50%;
+      width: 1.5rem;
+      height: 1.5rem;
+      animation: spin 1s linear infinite;
+      display: inline-block;
+    }
+    @keyframes spin {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
+  </style>
+</head>
+<body class="bg-gray-900 text-white">
+  {/* Header */}
+  <header class="fixed top-0 left-0 right-0 bg-gradient-to-r from-blue-600 to-blue-800 shadow-md z-10">
+    <div class="container mx-auto px-4 py-3">
+      <h1 class="text-2xl font-bold">Auto Mailer</h1>
+    </div>
+  </header>
+
+  {/* Main Content */}
+  <div class="main-content">
+    <div id="root"></div>
+  </div>
+
+  {/* Footer */}
+  <footer class="fixed bottom-0 left-0 right-0 bg-gradient-to-r from-blue-600 to-blue-800 text-center py-2 shadow-md">
+    <p class="text-sm">Developed by Zuheb</p>
+  </footer>
+
+  <script type="text/babel">
+    const { useState, useEffect } = React;
+
+    const App = () => {
+      const [config, setConfig] = useState({ email: '', password: '', host: 'smtp.gmail.com', port: 587 });
+      const [subject, setSubject] = useState('');
+      const [body, setBody] = useState('');
+      const [excelFile, setExcelFile] = useState(null);
+      const [pdfFile, setPdfFile] = useState(null);
+      const [message, setMessage] = useState('');
+      const [emailCount, setEmailCount] = useState(0);
+      const [isConfigLoading, setIsConfigLoading] = useState(false);
+      const [isSending, setIsSending] = useState(false);
+      const [popover, setPopover] = useState(null);
+
+      // Fetch Email Config on Mount
+      useEffect(() => {
+        fetch('/api/email-config')
+          .then(res => res.json())
+          .then(data => setConfig(data))
+          .catch(err => console.error(err));
+      }, []);
+
+      // Parse Excel File for Email Count
+      useEffect(() => {
+        if (excelFile) {
+          const reader = new FileReader();
+          reader.onload = (e) => {
+            const data = new Uint8Array(e.target.result);
+            const workbook = XLSX.read(data, { type: 'array' });
+            const sheet = workbook.Sheets[workbook.SheetNames[0]];
+            const emails = XLSX.utils.sheet_to_json(sheet).map(row => row.email).filter(email => email);
+            setEmailCount(emails.length);
+          };
+          reader.readAsArrayBuffer(excelFile);
+        } else {
+          setEmailCount(0);
+        }
+      }, [excelFile]);
+
+      // Auto-hide Popover
+      useEffect(() => {
+        if (popover) {
+          const timer = setTimeout(() => setPopover(null), 3000);
+          return () => clearTimeout(timer);
+        }
+      }, [popover]);
+
+      // Save Email Config
+      const handleSaveConfig = async () => {
+        setIsConfigLoading(true);
+        try {
+          const res = await fetch('/api/email-config', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(config),
+          });
+          const data = await res.json();
+          setPopover({ message: data.message || data.error, type: data.message ? 'success' : 'error' });
+        } catch (err) {
+          setPopover({ message: 'Error saving configuration', type: 'error' });
+        } finally {
+          setIsConfigLoading(false);
+        }
+      };
+
+      // Send Emails
+      const handleSendEmails = async () => {
+        if (emailCount > 500) {
+          setPopover({ message: 'Cannot send: Email list exceeds 500 recipients', type: 'error' });
+          return;
+        }
+        setIsSending(true);
+        const formData = new FormData();
+        formData.append('subject', subject);
+        formData.append('body', body);
+        if (excelFile) formData.append('excelFile', excelFile);
+        if (pdfFile) formData.append('pdfFile', pdfFile);
+
+        try {
+          const res = await fetch('/api/send-emails', {
+            method: 'POST',
+            body: formData,
+          });
+          const data = await res.json();
+          setMessage(data.message || data.error);
+          setPopover({ message: data.message || data.error, type: data.message.includes('successfully') ? 'success' : 'error' });
+        } catch (err) {
+          setMessage('Error sending emails');
+          setPopover({ message: 'Error sending emails', type: 'error' });
+        } finally {
+          setIsSending(false);
+        }
+      };
+
+      return (
+        <div className="container mx-auto max-w-2xl p-6">
+          <div className="bg-gray-800 rounded-xl shadow-2xl p-8">
+            <h1 className="text-3xl font-bold text-blue-400 mb-8 text-center">Configure & Send Emails</h1>
+
+            {/* Email Config Form */}
+            <div className="mb-10">
+              <h2 className="text-xl font-semibold text-gray-200 mb-4">Sender Email Configuration</h2>
+              <div className="space-y-5">
+                <input
+                  type="email"
+                  placeholder="Sender Email"
+                  value={config.email}
+                  onChange={e => setConfig({ ...config, email: e.target.value })}
+                  className="w-full p-3 bg-gray-700 border border-gray-600 rounded-md text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+                <input
+                  type="password"
+                  placeholder="App Password"
+                  value={config.password}
+                  onChange={e => setConfig({ ...config, password: e.target.value })}
+                  className="w-full p-3 bg-gray-700 border border-gray-600 rounded-md text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+                <input
+                  type="text"
+                  placeholder="SMTP Host"
+                  value={config.host}
+                  onChange={e => setConfig({ ...config, host: e.target.value })}
+                  className="w-full p-3 bg-gray-700 border border-gray-600 rounded-md text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+                <input
+                  type="number"
+                  placeholder="SMTP Port"
+                  value={config.port}
+                  onChange={e => setConfig({ ...config, port: e.target.value })}
+                  className="w-full p-3 bg-gray-700 border border-gray-600 rounded-md text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+                <button
+                  onClick={handleSaveConfig}
+                  disabled={isConfigLoading}
+                  className="w-full text-white p-3 rounded-md gradient-btn focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center"
+                >
+                  {isConfigLoading ? (
+                    <span className="spinner mr-2"></span>
+                  ) : null}
+                  {isConfigLoading ? 'Saving...' : 'Save Configuration'}
+                </button>
+              </div>
+            </div>
+
+            {/* Email Form */}
+            <div>
+              <h2 className="text-xl font-semibold text-gray-200 mb-4">Send Emails</h2>
+              <div className="space-y-5">
+                <p className="text-yellow-400 text-sm">
+                  Warning: Gmail limits sending to ~500 emails per day. {excelFile ? `Your file contains ${emailCount} email(s).` : 'Upload an Excel file to see the email count.'}
+                  {emailCount > 500 ? ' Exceeds limit!' : ''}
+                </p>
+                <input
+                  type="text"
+                  placeholder="Subject"
+                  value={subject}
+                  onChange={e => setSubject(e.target.value)}
+                  className="w-full p-3 bg-gray-700 border border-gray-600 rounded-md text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-green-500"
+                />
+                <textarea
+                  placeholder="Body"
+                  value={body}
+                  onChange={e => setBody(e.target.value)}
+                  className="w-full p-3 bg-gray-700 border border-gray-600 rounded-md text-white placeholder-gray-400 h-32 resize-none focus:outline-none focus:ring-2 focus:ring-green-500"
+                />
+                <div className="file-input-container">
+                  <label className="file-label">Upload Excel File (Email List)</label>
+                  <input
+                    type="file"
+                    accept=".xlsx,.xls"
+                    onChange={e => setExcelFile(e.target.files[0])}
+                    className="file-input"
+                  />
+                </div>
+                <div className="file-input-container">
+                  <label className="file-label">Upload PDF Resume (Optional)</label>
+                  <input
+                    type="file"
+                    accept=".pdf"
+                    onChange={e => setPdfFile(e.target.files[0])}
+                    className="file-input"
+                  />
+                </div>
+                <button
+                  onClick={handleSendEmails}
+                  disabled={isSending}
+                  className="w-full text-white p-3 rounded-md gradient-btn focus:outline-none focus:ring-2 focus:ring-green-500 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center"
+                >
+                  {isSending ? (
+                    <span className="spinner mr-2"></span>
+                  ) : null}
+                  {isSending ? 'Sending...' : 'Send Emails'}
+                </button>
+              </div>
+            </div>
+
+            {/* Popover */}
+            {popover && (
+              <div className={`popover ${popover.type === 'success' ? 'popover-success' : 'popover-error'}`}>
+                <button className="close-btn" onClick={() => setPopover(null)}>&times;</button>
+                <p className="text-center">{popover.message}</p>
+              </div>
+            )}
+
+            {/* Legacy Message (for backward compatibility) */}
+            {message && !popover && (
+              <p className={`mt-6 p-3 rounded-md text-center ${
+                message.includes('successfully') ? 'bg-green-700 text-green-100' : 'bg-red-700 text-red-100'
+              }`}>
+                {message}
+              </p>
+            )}
+          </div>
+        </div>
+      );
+    };
+
+    ReactDOM.render(<App />, document.getElementById('root'));
+  </script>
+</body>
+</html>
